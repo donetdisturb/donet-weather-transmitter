@@ -1,0 +1,16 @@
+# ── Secrets — NEVER commit real credentials ──
+secrets.yaml
+**/secrets.yaml
+
+# ── ESPHome build artifacts ──
+.esphome/
+**/.esphome/
+*.bin
+
+# ── Editor / OS noise ──
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ── Local-only folders (not part of the published project) ──
+.claude/

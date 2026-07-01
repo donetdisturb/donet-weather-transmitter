@@ -1,0 +1,178 @@
+# oregon-esp32-fs1000a.yaml — production build (ESP32 + FS1000A radio) on the `oregon` external component
+#
+# Emulates Oregon Scientific 433.92 MHz sensors toward a BAR989HG base (Oregon-compatible):
+#   ch1 = RTGN318 temp/humidity (~53.2s) + RTGR328N clock (every 10min) + UVR128 UV (~73s).
+# Source data comes from Home Assistant (SwitchBot -> bluetooth_proxy -> HA -> back here).
+#
+# This and oregon-esp32-cc1101.yaml are the same device (node name "oregon-all-in-one"); they
+# differ only in the radio layer. The TX logic lives in the external component, so the YAML
+# is fully declarative.
+#
+# Workflow: drop the whole `components/oregon/` folder into /config/esphome/components/ once
+#   (external_components below finds it), instead of copying Oregon_TM.h/.cpp by hand.
+#
+# FS1000A wiring: DATA->GPIO5  VCC->5V (stronger output than 3.3V)  GND->GND
+#   Antenna ~17.3cm wire (1/4 wave @ 433.92 MHz) — recommended, the FS1000A output is weak.
+
+substitutions:
+  name: "oregon-all-in-one"
+  friendly_name: "Donet Weather Transmitter (Oregon-compatible)"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  # No `includes:` / `libraries:` — the external component declares both.
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# BLE receiver: SwitchBot beacons -> HA via bluetooth_proxy (required).
+# Without this the SwitchBot->HA flow stops, so ha_temperature/ha_humidity arrive empty
+# and the Oregon TX only sends defaults.
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 320ms
+    window: 30ms
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+logger:
+  baud_rate: 115200
+  level: INFO
+
+api:
+  encryption:
+    key: !secret oregon-all-in-one__api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret oregon-all-in-one__ota_password
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
+    - ssid: !secret wifi_ext_ssid
+      password: !secret wifi_ext_password
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "CET-1CEST,M3.5.0/2,M10.5.0/3"
+
+# The external component (local folder: ./components/oregon)
+external_components:
+  - source:
+      type: local
+      path: components       # folder that CONTAINS the `oregon/` component dir
+    components: [oregon]
+
+# Home Assistant source sensors
+sensor:
+  - platform: homeassistant
+    entity_id: !secret oregon_all_in_one__sensor-temp-1
+    id: ha_temperature
+    internal: true
+  - platform: homeassistant
+    entity_id: !secret oregon_all_in_one__sensor-hum-1
+    id: ha_humidity
+    internal: true
+  - platform: homeassistant
+    entity_id: !secret oregon_all_in_one__sensor-uv
+    id: ha_uv
+    internal: true
+  # Optional: extra sensors 2-5 (see the commented `extra_channels:` block below).
+  # To enable an extra sensor, uncomment its source block here AND its entry under
+  # `extra_channels:` (a matched pair), and add the matching keys to secrets.yaml.
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-temp-2
+  #  id: ha_temperature_2
+  #  internal: true
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-hum-2
+  #  id: ha_humidity_2
+  #  internal: true
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-temp-3
+  #  id: ha_temperature_3
+  #  internal: true
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-hum-3
+  #  id: ha_humidity_3
+  #  internal: true
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-temp-4
+  #  id: ha_temperature_4
+  #  internal: true
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-hum-4
+  #  id: ha_humidity_4
+  #  internal: true
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-temp-5
+  #  id: ha_temperature_5
+  #  internal: true
+  #- platform: homeassistant
+  #  entity_id: !secret oregon_all_in_one__sensor-hum-5
+  #  id: ha_humidity_5
+  #  internal: true
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+
+button:
+  - platform: restart
+    name: "Restart ESP32"
+    icon: "mdi:restart"
+
+# The Oregon transmitter
+oregon:
+  id: oregon_tx
+  radio: fs1000a           # radio layer (vs oregon-esp32-cc1101.yaml: also tx_pin; no SPI pins)
+  tx_pin: 5               # FS1000A DATA pin
+  time_id: sntp_time
+  channel: 1
+  th_interval: 53s        # default — matches the library's ch1 send_time exactly
+  clock_interval: 10min
+  th_clock_gap: 5s
+  uv_interval: 73s
+  uv_boot: 5
+  temperature: ha_temperature
+  humidity: ha_humidity
+  uv: ha_uv
+  # Diagnostic entities (ch1) — optional; omit any you don't want in HA.
+  last_sent_temperature: { name: "Last Sent Temperature" }
+  last_sent_humidity:    { name: "Last Sent Humidity" }
+  th_tx_count:           { name: "Temperature TX Count" }
+  clock_tx_count:        { name: "Clock TX Count" }
+  last_sent_clock:       { name: "Last Sent Clock" }
+  tx_status:             { name: "TX Status" }
+  # Optional feature: extra sensors 2-5.
+  # Emulate up to 4 more TH sensors, each on its own channel. To enable one, uncomment its
+  # entry here AND its source block in `sensor:` above (matched pair), then add the secrets.
+  #   model: default rtgn318 (TH + own clock; channels 2-5; distinct codes, no collisions,
+  #          works on a 5-channel base like the BAR989HG).
+  #          Use `model: thgn132` (TH-only, channels 2-3 only) for a 3-channel station.
+  #   interval: omit -> the library's natural per-channel/model cadence.
+  #extra_channels:
+  #  - channel: 2
+  #    temperature: ha_temperature_2
+  #    humidity: ha_humidity_2
+  #  - channel: 3
+  #    temperature: ha_temperature_3
+  #    humidity: ha_humidity_3
+  #  - channel: 4
+  #    temperature: ha_temperature_4
+  #    humidity: ha_humidity_4
+  #  - channel: 5
+  #    temperature: ha_temperature_5
+  #    humidity: ha_humidity_5
+  # No cc1101_* SPI pins — ignored for radio: fs1000a (bit-banged OOK on tx_pin).
