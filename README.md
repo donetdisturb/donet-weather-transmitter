@@ -401,4 +401,5 @@ The CC1101 build pulls in the
 time (referenced by PlatformIO, not bundled or redistributed in this repo); it is used under its
 own license.
 
-This project is released under the [MIT License](LICENSE).
+This project is released under the [MIT License](LICENSE); third-party attributions are
+listed in [NOTICE](NOTICE).

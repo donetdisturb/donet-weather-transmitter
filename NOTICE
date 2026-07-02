@@ -1,0 +1,5 @@
+This project includes the Oregon_TM.cpp / Oregon_TM.h transmission library,
+derived from the OREGON_NR library by Sergey Zawislak (invandy):
+  https://github.com/invandy/Oregon_NR
+  Copyright (c) 2020-2021 Sergey Zawislak — MIT License
+The original MIT notice is retained in the headers of those files.
